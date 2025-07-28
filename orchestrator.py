@@ -1,71 +1,64 @@
-# orchestrator.py
-
+import ollama
 from agents.pricing_agent import PricingAgent
 from agents.listing_agent import ListingAgent
 from agents.negotiation_agent import NegotiationAgent
 from agents.logistics_agent import LogisticsAgent
 
 class Orchestrator:
-    """
-    Central orchestrator that coordinates the workflow, delegates tasks, and manages inter-agent communication.
-    """
-
     def __init__(self):
         self.pricing_agent = PricingAgent()
         self.listing_agent = ListingAgent()
         self.negotiation_agent = NegotiationAgent()
         self.logistics_agent = LogisticsAgent()
 
-    def delegate_task(self, agent, task, **kwargs):
-        """
-        Generic CrewAI-style delegation method to assign a task to an agent.
-        """
-        print(f"[Orchestrator] Delegating '{task}' to {agent.__class__.__name__}")
-        method = getattr(agent, task)
-        return method(**kwargs)
+    def ask_llm_next_action(self, product, last_price, scenario_desc):
+        prompt = (
+            f"You are an AI orchestration manager. The product is {product['title']} ({product['condition']}).\n"
+            f"Last attempted price: ${last_price:.2f}. Situation: {scenario_desc}\n"
+            "Should we (A) retry negotiation at a lower price, (B) wait for a new buyer, or (C) stop trying?\n"
+            "Reply ONLY with A, B, or C, and one line explanation."
+        )
+        response = ollama.chat(model='llama3', messages=[{"role": "user", "content": prompt}])
+        print(f"[Orchestrator LLM Decision] {response['message']['content']}")
+        return response['message']['content']
 
-    def run_workflow(self, product_info):
+    def run(self, product):
         print("[Orchestrator] Starting orchestration...")
+        price = self.pricing_agent.suggest_price(f"{product['title']} ({product['condition']})")
+        listing = self.listing_agent.create_listing(product, price)
 
-        status = {'steps': []}
+        negotiation_result = self.negotiation_agent.handle_negotiation(listing)
 
-        try:
-            # Step 1: Pricing
-            price = self.delegate_task(self.pricing_agent, 'suggest_price', product_info=product_info)
-            status['steps'].append('pricing: success')
+        # LLM-powered scenario decision: what if negotiation fails?
+        attempts = 0
+        max_attempts = 2  # don’t loop forever
+        while not negotiation_result.get("accepted") and attempts < max_attempts:
+            attempts += 1
+            scenario_desc = "Negotiation failed, buyer did not accept offer."
+            llm_action = self.ask_llm_next_action(product, price, scenario_desc)
 
-            # Step 2: Listing
-            listing = self.delegate_task(self.listing_agent, 'create_listing', product_info=product_info, price=price)
-            status['steps'].append('listing: success')
-
-            # Step 3: Negotiation
-            negotiation_result = self.delegate_task(self.negotiation_agent, 'handle_negotiation', listing=listing)
-            status['steps'].append('negotiation: attempted')
-
-            # Step 3B: If negotiation fails, ask PricingAgent for min price and retry
-            if negotiation_result is None:
-                min_price = self.delegate_task(self.pricing_agent, 'suggest_min_price', listing=listing)
-                print("[Orchestrator] Sending minimum price to NegotiationAgent for retry.")
-                listing['price'] = min_price
-                negotiation_result = self.delegate_task(self.negotiation_agent, 'handle_negotiation', listing=listing)
-                if negotiation_result:
-                    status['steps'].append('negotiation: succeeded on second try')
-                else:
-                    status['steps'].append('negotiation: failed')
+            if 'A' in llm_action:
+                # Lower price 10%, create new listing, re-negotiate
+                price = round(price * 0.9, 2)
+                print(f"[Orchestrator] Retrying with new price: ${price:.2f}")
+                listing = self.listing_agent.create_listing(product, price)
+                negotiation_result = self.negotiation_agent.handle_negotiation(listing)
+            elif 'B' in llm_action:
+                print("[Orchestrator] Waiting for new buyer (simulated: retrying negotiation)...")
+                negotiation_result = self.negotiation_agent.handle_negotiation(listing)
+            elif 'C' in llm_action:
+                print("[Orchestrator] Stopping workflow as per LLM advice.")
+                break
             else:
-                status['steps'].append('negotiation: success')
+                print("[Orchestrator] LLM response unclear, stopping.")
+                break
 
-            # Step 4: Logistics (may be skipped)
-            shipping_info = self.delegate_task(self.logistics_agent, 'arrange_shipping', negotiation_result=negotiation_result)
-            if shipping_info:
-                status['steps'].append('logistics: shipped')
-            else:
-                status['steps'].append('logistics: skipped')
-
-            print("[Orchestrator] Task status summary:", status)
+        if negotiation_result.get("accepted"):
+            shipping_info = self.logistics_agent.arrange_shipping(
+                listing["title"], negotiation_result["price"], negotiation_result["buyer"]
+            )
             print("[Orchestrator] Workflow complete.")
             return shipping_info
-        except Exception as e:
-            print(f"[Orchestrator][Fatal Error]: {e}")
-            status['error'] = str(e)
-            return status
+        else:
+            print("[Orchestrator] Sale failed, shipping skipped.")
+            return None
