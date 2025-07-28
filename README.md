@@ -32,6 +32,46 @@ ai-agent-orchestrator/
 
 ---
 
+
+
+
+
+---
+
+## Task Requirements & How This Project Meets Them
+
+| Requirement                           | Implementation Location   |
+|----------------------------------------|--------------------------|
+| Central AI Orchestrator                | `orchestrator.py` class  |
+| 3-4 Specialized Agents                 | `agents/` (Pricing, Listing, Negotiation, Logistics) |
+| Basic Communication Layer              | Orchestrator delegates & relays data between agents |
+| Simple Data Flow Management            | Orchestrator runs workflow, passes results stepwise |
+| Orchestrator delegates tasks (CrewAI)  | `delegate_task()` method in `orchestrator.py` |
+| At least 2-3 agents, distinct roles    | `agents/pricing_agent.py`, etc.  |
+| Inter-agent communication              | Negotiation ↔️ Pricing (min price retry)         |
+| Error handling & task coordination     | If negotiation fails, shipping skipped; status logs |
+| Clear system architecture & diagrams   | `mermaid.png`, `seq.png` in README               |
+
+---
+
+## Sample Output
+
+[Orchestrator] Starting orchestration...
+[Orchestrator] Delegating 'suggest_price' to PricingAgent
+[PricingAgent] Suggested price for 'Surplus iPhone 12': $255.00
+[Orchestrator] Delegating 'create_listing' to ListingAgent
+[ListingAgent] Created listing: {'title': 'Surplus iPhone 12 (good)', ...}
+[Orchestrator] Delegating 'handle_negotiation' to NegotiationAgent
+[NegotiationAgent] Received offer: $204.00 for Surplus iPhone 12 (good) (asking: $255.00)
+[NegotiationAgent] Offer accepted at $204.00!
+[Orchestrator] Delegating 'arrange_shipping' to LogisticsAgent
+[LogisticsAgent] Shipping arranged: {'recipient': 'John Doe', ...}
+[Orchestrator] Task status summary: {'steps': ['pricing: success', 'listing: success', 'negotiation: success', 'logistics: shipped']}
+[Orchestrator] Workflow complete.
+
+Final Output: {'recipient': 'John Doe', ...}
+
+
 ## **How to Run**
 
 1. **Clone the repository:**
